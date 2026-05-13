@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BIN Portfolio Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" defer></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      --travel: #0EA5E9;
+      --payroll: #10B981;
+      --b2b: #8B5CF6;
+      --expense: #F59E0B;
+      --ai: #EF4444;
+      --thredd: #14B8A6;
+      --fis: #6366F1;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    .header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .brand { font-weight: 700; font-size: 1.1rem; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(180px,1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 1rem; }
+    .kpi-label { color: var(--muted); font-size: .85rem; }
+    .kpi-value { font-size: 1.4rem; font-weight: 700; margin-top: .3rem; }
+    .filter-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; margin-bottom: 1rem; }
+    select, button { padding: .65rem; border-radius: 10px; border: 1px solid var(--border); background: white; }
+    button { cursor: pointer; background: #0f172a; color: white; }
+    .section-title { margin: .4rem 0 .8rem; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(250px,1fr)); gap: 1rem; }
+    .bin-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 1rem; cursor: pointer; }
+    .bin-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
+    .badge { color: white; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: .35rem; margin-top: .5rem; font-size: .9rem; }
+    .pill { display: inline-block; margin-top: .5rem; padding: .15rem .5rem; border-radius: 999px; background: #e0f2fe; color: #075985; font-size: .75rem; }
+    .chart-wrap { margin: 1rem 0; }
+    #empty-state { display:none; padding:1rem; background:white; border-radius:12px; border:1px dashed var(--border); color: var(--muted); text-align:center; }
+    .modal { position: fixed; inset:0; background: rgba(15,23,42,.45); display:none; align-items:center; justify-content:center; padding:1rem; }
+    .modal.open { display:flex; }
+    .modal-box { max-width: 760px; width: 100%; max-height: 88vh; overflow:auto; background:white; border-radius:12px; padding:1rem; }
+    .modal-head { display:flex; justify-content:space-between; align-items:center; }
+    .detail-grid { display:grid; grid-template-columns: 200px 1fr; gap:.5rem .75rem; margin-top:.75rem; }
+    .detail-grid div:nth-child(odd){color:var(--muted)}
+    @media (max-width: 900px){ .kpi-row{grid-template-columns:1fr 1fr} .filter-bar{grid-template-columns:1fr 1fr} .grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <div class="brand">Nium · BIN Portfolio Dashboard</div>
+        <small class="muted" id="last-updated"></small>
+      </div>
+    </header>
+
+    <section class="kpi-row">
+      <div class="card"><div class="kpi-label">Total Monthly Spend</div><div id="kpi-spend" class="kpi-value">€0</div></div>
+      <div class="card"><div class="kpi-label">Total Active Cards</div><div id="kpi-cards" class="kpi-value">0</div></div>
+      <div class="card"><div class="kpi-label">Total Scheme Fees</div><div id="kpi-fees" class="kpi-value">€0</div></div>
+      <div class="card"><div class="kpi-label">Blended Decline Rate</div><div id="kpi-decline" class="kpi-value">0%</div></div>
+    </section>
+
+    <section class="filter-bar card">
+      <select id="processor"></select>
+      <select id="product"></select>
+      <select id="region"></select>
+      <select id="scheme"></select>
+      <button id="reset">Reset Filters</button>
+    </section>
+
+    <h3 class="section-title">Scheme Spend by Product Line</h3>
+    <section class="card chart-wrap"><canvas id="spendChart" height="130"></canvas></section>
+
+    <h3 class="section-title">BIN Portfolio</h3>
+    <div id="empty-state">No BINs match your filters.</div>
+    <section id="bin-grid" class="grid"></section>
+  </div>
+
+  <div class="modal" id="detail-modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modal-title">BIN Details</h3>
+        <button id="close-modal" aria-label="Close">×</button>
+      </div>
+      <div id="modal-content" class="detail-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const BINS = [
+      {id:"BIN-001",range:"453821",product_line:"Travel",processor:"Thredd",region:"EEA",scheme:"Visa",card_type:"Prepaid",launch_date:"2019-03-15",active_cards:142500,monthly_volume_eur:18420000,monthly_scheme_fees_eur:42180,avg_transaction_eur:87.5,decline_rate_pct:4.2,chargeback_rate_bps:18,fx_enabled:true,virtual_only:true,notes:"Original travel BIN; OTA partners"},
+      {id:"BIN-002",range:"453822",product_line:"Travel",processor:"Thredd",region:"UK",scheme:"Visa",card_type:"Prepaid",launch_date:"2020-06-01",active_cards:89300,monthly_volume_eur:11250000,monthly_scheme_fees_eur:26800,avg_transaction_eur:92.3,decline_rate_pct:5.1,chargeback_rate_bps:24,fx_enabled:true,virtual_only:true,notes:"Post-Brexit UK split"},
+      {id:"BIN-003",range:"471104",product_line:"Travel",processor:"FIS",region:"APAC",scheme:"Visa",card_type:"Prepaid",launch_date:"2021-02-10",active_cards:67800,monthly_volume_eur:8940000,monthly_scheme_fees_eur:23100,avg_transaction_eur:108.2,decline_rate_pct:6.8,chargeback_rate_bps:31,fx_enabled:true,virtual_only:true,notes:"APAC aggregator-heavy"},
+      {id:"BIN-004",range:"485592",product_line:"Payroll",processor:"Thredd",region:"EEA",scheme:"Mastercard",card_type:"Prepaid",launch_date:"2018-05-12",active_cards:38400,monthly_volume_eur:14600000,monthly_scheme_fees_eur:31800,avg_transaction_eur:176.4,decline_rate_pct:2.9,chargeback_rate_bps:12,fx_enabled:false,virtual_only:false,notes:"Payroll anchor BIN"},
+      {id:"BIN-005",range:"485593",product_line:"Payroll",processor:"Thredd",region:"UK",scheme:"Mastercard",card_type:"Prepaid",launch_date:"2019-11-09",active_cards:21900,monthly_volume_eur:7820000,monthly_scheme_fees_eur:17200,avg_transaction_eur:168.2,decline_rate_pct:3.4,chargeback_rate_bps:14,fx_enabled:false,virtual_only:false,notes:"UK payroll expansion"},
+      {id:"BIN-006",range:"492014",product_line:"B2B Spend",processor:"FIS",region:"EEA",scheme:"Visa",card_type:"Credit",launch_date:"2022-01-20",active_cards:12800,monthly_volume_eur:22300000,monthly_scheme_fees_eur:51800,avg_transaction_eur:580.9,decline_rate_pct:2.5,chargeback_rate_bps:8,fx_enabled:true,virtual_only:false,notes:"Enterprise AP volume"},
+      {id:"BIN-007",range:"492015",product_line:"B2B Spend",processor:"FIS",region:"US",scheme:"Visa",card_type:"Credit",launch_date:"2022-10-02",active_cards:8200,monthly_volume_eur:9870000,monthly_scheme_fees_eur:22400,avg_transaction_eur:602.4,decline_rate_pct:2.2,chargeback_rate_bps:7,fx_enabled:true,virtual_only:false,notes:"US mid-market"},
+      {id:"BIN-008",range:"538277",product_line:"Expense Management",processor:"Thredd",region:"EEA",scheme:"Mastercard",card_type:"Debit",launch_date:"2020-03-03",active_cards:45600,monthly_volume_eur:16780000,monthly_scheme_fees_eur:37100,avg_transaction_eur:129.8,decline_rate_pct:3.8,chargeback_rate_bps:16,fx_enabled:true,virtual_only:false,notes:"Strong SMB demand"},
+      {id:"BIN-009",range:"538278",product_line:"Expense Management",processor:"Thredd",region:"UK",scheme:"Mastercard",card_type:"Debit",launch_date:"2021-07-21",active_cards:28100,monthly_volume_eur:9230000,monthly_scheme_fees_eur:20400,avg_transaction_eur:121.7,decline_rate_pct:4.4,chargeback_rate_bps:20,fx_enabled:true,virtual_only:false,notes:"High growth in UK"},
+      {id:"BIN-010",range:"471105",product_line:"Agentic/AI Spend",processor:"FIS",region:"Global",scheme:"Visa",card_type:"Virtual Credit",launch_date:"2025-09-15",active_cards:4200,monthly_volume_eur:3120000,monthly_scheme_fees_eur:8400,avg_transaction_eur:73.1,decline_rate_pct:7.4,chargeback_rate_bps:35,fx_enabled:true,virtual_only:true,notes:"Pilot BIN for autonomous spend"}
+    ];
+    const filters = { processor:'All', product_line:'All', region:'All', scheme:'All' };
+    const map = { Travel:'var(--travel)', Payroll:'var(--payroll)', 'B2B Spend':'var(--b2b)', 'Expense Management':'var(--expense)', 'Agentic/AI Spend':'var(--ai)' };
+    const fmtEur = n => new Intl.NumberFormat('en-US',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n);
+    const fmtNum = n => new Intl.NumberFormat('en-US').format(n);
+    let chart;
+
+    function filteredBins(){ return BINS.filter(b => ['processor','product_line','region','scheme'].every(k => filters[k]==='All' || b[k]===filters[k])); }
+    function setOptions(id, values){ document.getElementById(id).innerHTML = ['All',...values].map(v=>`<option value="${v}">${v}</option>`).join(''); }
+    function renderKPIs(rows){
+      const vol = rows.reduce((a,b)=>a+b.monthly_volume_eur,0);
+      const cards = rows.reduce((a,b)=>a+b.active_cards,0);
+      const fees = rows.reduce((a,b)=>a+b.monthly_scheme_fees_eur,0);
+      const decline = vol ? rows.reduce((a,b)=>a + (b.decline_rate_pct*b.monthly_volume_eur),0)/vol : 0;
+      kpiSpend.textContent = fmtEur(vol); kpiCards.textContent = fmtNum(cards); kpiFees.textContent = fmtEur(fees); kpiDecline.textContent = `${decline.toFixed(2)}%`;
+    }
+    function renderGrid(rows){
+      emptyState.style.display = rows.length ? 'none' : 'block';
+      binGrid.innerHTML = rows.map(b => `<article class="bin-card" data-id="${b.id}"><div class="bin-head"><span class="badge" style="background:${map[b.product_line]}">${b.product_line}</span><strong>${b.id}</strong></div><div>${b.range}</div><div class="muted">${b.processor} · ${b.region} · ${b.scheme}</div><div class="stats"><div>€${(b.monthly_volume_eur/1e6).toFixed(2)}M</div><div>${fmtNum(b.active_cards)}</div><div>${b.decline_rate_pct}%</div></div>${b.fx_enabled?'<span class="pill">FX Enabled</span>':''}</article>`).join('');
+      binGrid.querySelectorAll('.bin-card').forEach(c=>c.addEventListener('click',()=>openDetail(c.dataset.id)));
+    }
+    function renderChart(rows){
+      const labels = [...new Set(rows.map(b=>b.product_line))];
+      const datasets = ['Thredd','FIS'].map(proc=>({ label: proc, data: labels.map(pl => rows.filter(b=>b.product_line===pl && b.processor===proc).reduce((a,b)=>a+b.monthly_volume_eur,0)/1e6), backgroundColor: proc==='Thredd'?'#14B8A6':'#6366F1' }));
+      if (chart) chart.destroy();
+      chart = new Chart(spendChart, { type:'bar', data:{labels,datasets}, options:{indexAxis:'y', responsive:true, scales:{x:{title:{display:true,text:'€ Millions'}}}}});
+    }
+    function openDetail(id){
+      const b = BINS.find(x=>x.id===id); if (!b) return;
+      modalTitle.textContent = `${b.id} — ${b.range}`;
+      const fields = [["BIN ID",b.id],["BIN Range",b.range],["Product Line",b.product_line],["Processor",b.processor],["Region",b.region],["Scheme",b.scheme],["Card Type",b.card_type],["Launch Date",b.launch_date],["Active Cards",fmtNum(b.active_cards)],["Monthly Volume",fmtEur(b.monthly_volume_eur)],["Monthly Fees",fmtEur(b.monthly_scheme_fees_eur)],["Avg Transaction",`€${b.avg_transaction_eur}`],["Decline Rate",`${b.decline_rate_pct}%`],["Chargeback Rate",`${b.chargeback_rate_bps} bps`],["FX Enabled",b.fx_enabled?'Yes':'No'],["Virtual Only",b.virtual_only?'Yes':'No'],["Notes",b.notes]];
+      modalContent.innerHTML = fields.map(([k,v])=>`<div>${k}</div><div>${v}</div>`).join('');
+      detailModal.classList.add('open');
+    }
+    function render(){ const rows = filteredBins(); renderKPIs(rows); renderGrid(rows); renderChart(rows); }
+
+    const kpiSpend = document.getElementById('kpi-spend'), kpiCards = document.getElementById('kpi-cards'), kpiFees = document.getElementById('kpi-fees'), kpiDecline = document.getElementById('kpi-decline');
+    const binGrid = document.getElementById('bin-grid'), emptyState = document.getElementById('empty-state'), spendChart = document.getElementById('spendChart');
+    const detailModal = document.getElementById('detail-modal'), modalContent = document.getElementById('modal-content'), modalTitle = document.getElementById('modal-title');
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('last-updated').textContent = `Last updated: ${new Date().toLocaleString()}`;
+      setOptions('processor',[...new Set(BINS.map(b=>b.processor))]);
+      setOptions('product',[...new Set(BINS.map(b=>b.product_line))]);
+      setOptions('region',[...new Set(BINS.map(b=>b.region))]);
+      setOptions('scheme',[...new Set(BINS.map(b=>b.scheme))]);
+      [['processor','processor'],['product','product_line'],['region','region'],['scheme','scheme']].forEach(([id,key]) => document.getElementById(id).addEventListener('change',(e)=>{filters[key]=e.target.value; render();}));
+      document.getElementById('reset').addEventListener('click',()=>{Object.keys(filters).forEach(k=>filters[k]='All'); ['processor','product','region','scheme'].forEach(id=>document.getElementById(id).value='All'); render();});
+      document.getElementById('close-modal').addEventListener('click',()=>detailModal.classList.remove('open'));
+      detailModal.addEventListener('click',(e)=>{ if(e.target===detailModal) detailModal.classList.remove('open');});
+      document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') detailModal.classList.remove('open'); });
+      render();
+    });
+  </script>
+</body>
+</html>
